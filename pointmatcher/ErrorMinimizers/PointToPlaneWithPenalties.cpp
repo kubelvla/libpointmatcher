@@ -38,6 +38,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "Eigen/QR"
 #include "Eigen/Eigenvalues"
+#include "Eigen/SVD"
+#include "Eigen/Dense"
 
 #include "ErrorMinimizersImpl.h"
 #include "PointMatcherPrivate.h"
@@ -68,15 +70,34 @@ typename PointMatcher<T>::TransformationParameters PointToPlaneWithPenaltiesErro
 	const size_t nbPenalty(mPts_const.penalties.size());
 	const size_t nbPoints = mPts.weights.cols();
 
-	mPts.weights = mPts.weights / mPts.weights.norm();
-	mPts.weights.conservativeResize(Eigen::NoChange, nbPenalty * dim + nbPoints);
+
+
+    mPts.weights = mPts.weights / mPts.weights.norm();
+    mPts.weights.conservativeResize(Eigen::NoChange, nbPenalty * dim + nbPoints);
+
+
+	Matrix location, cov, offset;
+
+	if(nbPenalty){
+		std::tie(location, cov, offset) = mPts_const.penalties[0];
+		if(location.rows()==4){
+			if(isnan(location(3,3))){
+				typename PointMatcher<T>::TransformationParameters out =
+						//PointToPlaneWithPenaltiesErrorMinimizer<T>::compute_with_gravity(mPts,location,cov);
+						PointToPlaneWithPenaltiesErrorMinimizer<T>::compute_4dof_with_gravity(mPts);
+				return out;
+			}
+		}
+	}
+
+
+
 
 	// It's hard to add points with descriptor to a Datapoints, so we create a new Datapoints for the new points and then concatenate it
 	Matrix penaltiesPtsRead(dim + 1, nbPenalty * dim);
 	Matrix penaltiesPtsReference(dim + 1, nbPenalty * dim);
 	Matrix penaltiesNormals(dim, nbPenalty * dim);
 
-	Matrix location, cov, offset;
 	for (size_t i = 0; i < mPts_const.penalties.size(); ++i) {
 		// To minimize both the distances from the point cloud and the penalties at the same time we convert the penalties to fake pairs of point/normal.
 		// For each penalty n fake pairs of point/normal will be created, where n is the dimensions of the covariance.
@@ -105,6 +126,7 @@ typename PointMatcher<T>::TransformationParameters PointToPlaneWithPenaltiesErro
 		mPts.weights.block(0, nbPoints + dim * i, 1, dim) = eigenVal.diagonal().array().inverse().transpose();
 //		std::cout<< "penaltiesNormals" << std::endl << penaltiesNormals << std::endl;
 //		std::cout<< "penaltiesPtsRead" << std::endl << penaltiesPtsRead << std::endl;
+
 
 	}
 	const Labels normalLabel({Label("normals", dim)});
@@ -149,6 +171,332 @@ T PointToPlaneWithPenaltiesErrorMinimizer<T>::getResidualError(
 	}
 
 	return pointToPlaneErr + penalitiesErr;
+}
+
+
+template<typename T>
+typename PointMatcher<T>::TransformationParameters PointToPlaneWithPenaltiesErrorMinimizer<T>::compute_with_gravity(ErrorElements& mPts,
+																													const Matrix& imu_attitude,
+																													const Matrix& attitude_weight)
+{
+	const int dim = mPts.reading.features.rows();
+	const int nbPts = mPts.reading.features.cols();
+
+
+
+
+	if(this->force2D || dim == 3)
+	{
+		throw std::logic_error("compute_with_gravity() can be used solely in the 3D case!");
+	}
+
+	// Adjust if the user forces 2D minimization on XY-plane
+	int forcedDim = dim - 1;
+//	if(this->force2D && dim == 4)
+//	{
+//		mPts.reading.features.conservativeResize(3, Eigen::NoChange);
+//		mPts.reading.features.row(2) = Matrix::Ones(1, nbPts);
+//		mPts.reference.features.conservativeResize(3, Eigen::NoChange);
+//		mPts.reference.features.row(2) = Matrix::Ones(1, nbPts);
+//		forcedDim = dim - 2;
+//	}
+
+	// Fetch normal vectors of the reference point cloud (with adjustment if needed)
+	const BOOST_AUTO(normalRef, mPts.reference.getDescriptorViewByName("normals").topRows(forcedDim));
+
+	// Note: Normal vector must be precalculated to use this error. Use appropriate input filter.
+	assert(normalRef.rows() > 0);
+
+	// Compute cross product of cross = cross(reading X normalRef)
+	const Matrix cross = this->crossProduct(mPts.reading.features, normalRef);
+
+	// wF = [weights*cross, weights*normals]
+	// F  = [cross, normals]
+	Matrix wF(normalRef.rows()+ cross.rows(), normalRef.cols());
+	Matrix F(normalRef.rows()+ cross.rows(), normalRef.cols());
+
+	for(int i=0; i < cross.rows(); i++)
+	{
+		wF.row(i) = mPts.weights.array() * cross.row(i).array();
+		F.row(i) = cross.row(i);
+	}
+	for(int i=0; i < normalRef.rows(); i++)
+	{
+		wF.row(i + cross.rows()) = mPts.weights.array() * normalRef.row(i).array();
+		F.row(i + cross.rows()) = normalRef.row(i);
+	}
+
+	// Unadjust covariance A = wF * F'
+	const Matrix A_orig = wF * F.transpose();
+
+	const Matrix deltas = mPts.reading.features - mPts.reference.features;
+
+	// dot product of dot = dot(deltas, normals)
+	Matrix dotProd = Matrix::Zero(1, normalRef.cols());
+
+	for(int i=0; i<normalRef.rows(); i++)
+	{
+		dotProd += (deltas.row(i).array() * normalRef.row(i).array()).matrix();
+	}
+
+	// b = -(wF' * dot)
+	const Vector b_orig = -(wF * dotProd.transpose());
+
+
+	//VK: Add extra entries to A and b that force IMU roll and pitch
+
+	//attitude_weight
+	Matrix A_grav(6,6);
+    A_grav << 1, 0, 0, 0, 0, 0,
+              0, 1, 0, 0, 0, 0,
+              0, 0, 0, 0, 0, 0,
+              0, 0, 0, 0, 0, 0,
+              0, 0, 0, 0, 0, 0,
+              0, 0, 0, 0, 0, 0;
+
+	Vector b_grav = Matrix::Zero(6, 1);
+
+
+
+    Matrix A = A_orig + A_grav*1000000;
+    Vector b = b_orig + b_grav;
+
+
+    std::cout << "This is A in Vlad's:" << std::endl << A << std::endl;
+    std::cout << "This is b in Vlad's:" << std::endl << b << std::endl;
+
+	Vector x(A.rows());
+
+	solvePossiblyUnderdeterminedLinearSystem<T>(A, b, x);
+
+	// Transform parameters to matrix
+	Matrix mOut;
+	if(dim == 4 && !this->force2D)
+	{
+		Eigen::Transform<T, 3, Eigen::Affine> transform;
+		// PLEASE DONT USE EULAR ANGLES!!!!
+		// Rotation in Eular angles follow roll-pitch-yaw (1-2-3) rule
+		/*transform = Eigen::AngleAxis<T>(x(0), Eigen::Matrix<T,1,3>::UnitX())
+         * Eigen::AngleAxis<T>(x(1), Eigen::Matrix<T,1,3>::UnitY())
+         * Eigen::AngleAxis<T>(x(2), Eigen::Matrix<T,1,3>::UnitZ());*/
+
+		transform = Eigen::AngleAxis<T>(x.head(3).norm(),x.head(3).normalized());
+
+		// Reverse roll-pitch-yaw conversion, very useful piece of knowledge, keep it with you all time!
+		/*const T pitch = -asin(transform(2,0));
+            const T roll = atan2(transform(2,1), transform(2,2));
+            const T yaw = atan2(transform(1,0) / cos(pitch), transform(0,0) / cos(pitch));
+            std::cerr << "d angles" << x(0) - roll << ", " << x(1) - pitch << "," << x(2) - yaw << std::endl;*/
+		transform.translation() = x.segment(3, 3);
+		mOut = transform.matrix();
+
+		if (mOut != mOut)
+		{
+			// Degenerate situation. This can happen when the source and reading clouds
+			// are identical, and then b and x above are 0, and the rotation matrix cannot
+			// be determined, it comes out full of NaNs. The correct rotation is the identity.
+			mOut.block(0, 0, dim-1, dim-1) = Matrix::Identity(dim-1, dim-1);
+		}
+	}
+	else
+	{
+		Eigen::Transform<T, 2, Eigen::Affine> transform;
+		transform = Eigen::Rotation2D<T> (x(0));
+		transform.translation() = x.segment(1, 2);
+
+		if(this->force2D)
+		{
+			mOut = Matrix::Identity(dim, dim);
+			mOut.topLeftCorner(2, 2) = transform.matrix().topLeftCorner(2, 2);
+			mOut.topRightCorner(2, 1) = transform.matrix().topRightCorner(2, 1);
+		}
+		else
+		{
+			mOut = transform.matrix();
+		}
+	}
+	return mOut;
+}
+
+
+template<typename T>
+typename PointMatcher<T>::Matrix PointToPlaneWithPenaltiesErrorMinimizer<T>::compute_A_matrix_rows_for_gravity(const Matrix& imu_attitude, const Vector& normal_vect)
+{
+	Matrix A_grav_11 = Matrix::Zero(3, 3);
+	T n1 = normal_vect(0);
+	T n2 = normal_vect(1);
+	T n3 = normal_vect(2);
+	T r3 = imu_attitude(0,2);
+	T r6 = imu_attitude(1,2);
+	T r9 = imu_attitude(2,2);
+	A_grav_11 << pow(n3*r6-n2*r9,2), -(n3*r3-n1*r9)*(n3*r6-n2*r9), (n2*r3-n1*r6)*(n3*r6-n2*r9),
+	             -(n3*r3-n1*r9)*(n3*r6-n2*r9), pow((n3*r3-n1*r9),2), -(n2*r3-n1*r6)*(n3*r3-n1*r9),
+			     (n2*r3-n1*r6)*(n3*r6-n2*r9), -(n2*r3-n1*r6)*(n3*r3-n1*r9), pow((n2*r3-n1*r6),2);
+
+	Matrix A_grav = Matrix::Zero(6, 6);
+	A_grav.block(0,0,3,3) = A_grav_11;
+	return A_grav;
+}
+
+template<typename T>
+typename PointMatcher<T>::Vector PointToPlaneWithPenaltiesErrorMinimizer<T>::compute_b_vector_elements_for_gravity(const Matrix& imu_attitude, const Vector& normal_vect)
+{
+	Vector b_grav = Vector::Zero(6);
+	T n1 = normal_vect(0);
+	T n2 = normal_vect(1);
+	T n3 = normal_vect(2);
+	T r3 = imu_attitude(0,2);
+	T r6 = imu_attitude(1,2);
+	T r9 = imu_attitude(2,2);
+
+	b_grav(0) = -(n3*r6 - n2*r9)*(n1*r3 - n3 + n2*r6 + n3*r9);
+	b_grav(1) =  (n3*r3 - n1*r9)*(n1*r3 - n3 + n2*r6 + n3*r9);
+	b_grav(2) = -(n2*r3 - n1*r6)*(n1*r3 - n3 + n2*r6 + n3*r9);
+
+	return b_grav;
+}
+
+template<typename T>
+typename PointMatcher<T>::TransformationParameters PointToPlaneWithPenaltiesErrorMinimizer<T>::compute_4dof_with_gravity(ErrorElements& mPts)
+{
+    const int dim = mPts.reading.features.rows();
+    const int nbPts = mPts.reading.features.cols();
+
+
+
+
+    if(this->force2D || dim == 3)
+    {
+        throw std::logic_error("compute_4dof_with_gravity() can be used solely in the 3D case!");
+    }
+
+    // Adjust if the user forces 2D minimization on XY-plane
+    int forcedDim = dim - 1;
+//	if(this->force2D && dim == 4)
+//	{
+//		mPts.reading.features.conservativeResize(3, Eigen::NoChange);
+//		mPts.reading.features.row(2) = Matrix::Ones(1, nbPts);
+//		mPts.reference.features.conservativeResize(3, Eigen::NoChange);
+//		mPts.reference.features.row(2) = Matrix::Ones(1, nbPts);
+//		forcedDim = dim - 2;
+//	}
+
+    // Fetch normal vectors of the reference point cloud (with adjustment if needed)
+    const BOOST_AUTO(normalRef, mPts.reference.getDescriptorViewByName("normals").topRows(forcedDim));
+
+    // Note: Normal vector must be precalculated to use this error. Use appropriate input filter.
+    assert(normalRef.rows() > 0);
+
+
+
+    //VK: The cross product is replaced by a modified vector scalar product (GAMMA*reading)dot(normal)
+    Matrix Gamma(3,3);
+	Gamma << 0,-1, 0,
+	         1, 0, 0,
+	         0, 0, 0;
+
+
+    // Compute cross product of cross = cross(reading X normalRef)
+    //const Matrix cross = this->crossProduct(mPts.reading.features, normalRef);             // This would be 3*k matrix
+	const Matrix cross = ((Gamma*mPts.reading.features).transpose()*normalRef).diagonal().transpose();   // This is 1*k vector
+
+
+    // wF = [weights*cross, weights*normals]
+    // F  = [cross, normals]
+    Matrix wF(normalRef.rows()+ cross.rows(), normalRef.cols());
+    Matrix F(normalRef.rows()+ cross.rows(), normalRef.cols());
+
+	std::cout << "wF rows:" << wF.rows() << " and cols:" << wF.cols()  << std::endl;
+	std::cout << "F rows:" << F.rows() << " and cols:" << F.cols() << std::endl;
+
+    for(int i=0; i < cross.rows(); i++)
+    {
+        wF.row(i) = mPts.weights.array() * cross.row(i).array();
+        F.row(i) = cross.row(i);
+    }
+    for(int i=0; i < normalRef.rows(); i++)
+    {
+        wF.row(i + cross.rows()) = mPts.weights.array() * normalRef.row(i).array();
+        F.row(i + cross.rows()) = normalRef.row(i);
+    }
+
+    // Unadjust covariance A = wF * F'
+    const Matrix A = wF * F.transpose();
+
+    const Matrix deltas = mPts.reading.features - mPts.reference.features;
+
+    // dot product of dot = dot(deltas, normals)
+    Matrix dotProd = Matrix::Zero(1, normalRef.cols());
+
+    for(int i=0; i<normalRef.rows(); i++)
+    {
+        dotProd += (deltas.row(i).array() * normalRef.row(i).array()).matrix();
+    }
+
+    // b = -(wF' * dot)
+    const Vector b = -(wF * dotProd.transpose());
+
+
+
+    std::cout << "This is A in Vlad's 4dof:" << std::endl << A << std::endl;
+    std::cout << "This is b in Vlad's 4dof:" << std::endl << b << std::endl;
+
+    Vector x(A.rows());
+
+    solvePossiblyUnderdeterminedLinearSystem<T>(A, b, x);
+
+	std::cout << "This is x in Vlad's 4dof:" << std::endl << x << std::endl;
+
+    // Transform parameters to matrix
+    Matrix mOut;
+    if(dim == 4 && !this->force2D)
+    {
+        Eigen::Transform<T, 3, Eigen::Affine> transform;
+        // PLEASE DONT USE EULAR ANGLES!!!!
+        // Rotation in Eular angles follow roll-pitch-yaw (1-2-3) rule
+        /*transform = Eigen::AngleAxis<T>(x(0), Eigen::Matrix<T,1,3>::UnitX())
+         * Eigen::AngleAxis<T>(x(1), Eigen::Matrix<T,1,3>::UnitY())
+         * Eigen::AngleAxis<T>(x(2), Eigen::Matrix<T,1,3>::UnitZ());*/
+
+        //transform = Eigen::AngleAxis<T>(x.head(3).norm(),x.head(3).normalized());
+		Vector unitZ(3,1);
+		unitZ << 0,0,1;
+        transform = Eigen::AngleAxis<T>(x(0), unitZ);
+
+        // Reverse roll-pitch-yaw conversion, very useful piece of knowledge, keep it with you all time!
+        /*const T pitch = -asin(transform(2,0));
+            const T roll = atan2(transform(2,1), transform(2,2));
+            const T yaw = atan2(transform(1,0) / cos(pitch), transform(0,0) / cos(pitch));
+            std::cerr << "d angles" << x(0) - roll << ", " << x(1) - pitch << "," << x(2) - yaw << std::endl;*/
+        transform.translation() = x.segment(1, 3);
+        mOut = transform.matrix();
+
+        if (mOut != mOut)
+        {
+            // Degenerate situation. This can happen when the source and reading clouds
+            // are identical, and then b and x above are 0, and the rotation matrix cannot
+            // be determined, it comes out full of NaNs. The correct rotation is the identity.
+            mOut.block(0, 0, dim-1, dim-1) = Matrix::Identity(dim-1, dim-1);
+        }
+    }
+    else
+    {
+        Eigen::Transform<T, 2, Eigen::Affine> transform;
+        transform = Eigen::Rotation2D<T> (x(0));
+        transform.translation() = x.segment(1, 2);
+
+        if(this->force2D)
+        {
+            mOut = Matrix::Identity(dim, dim);
+            mOut.topLeftCorner(2, 2) = transform.matrix().topLeftCorner(2, 2);
+            mOut.topRightCorner(2, 1) = transform.matrix().topRightCorner(2, 1);
+        }
+        else
+        {
+            mOut = transform.matrix();
+        }
+    }
+    return mOut;
 }
 
 template struct PointToPlaneWithPenaltiesErrorMinimizer<float>;
