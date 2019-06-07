@@ -156,6 +156,12 @@ typename PointMatcher<T>::TransformationParameters PointToPlaneErrorMinimizer<T>
 		// Compute cross product of cross = cross(reading X normalRef)
 		const Matrix cross = this->crossProduct(mPts.reading.features, normalRef);
 
+        std::cout << "Penalty points p: " << std::endl << mPts.reading.features.rightCols(3) << std::endl;
+        std::cout << "Penalty norlmals n : " << std::endl << normalRef.rightCols(3) << std::endl;
+        std::cout << "Penalty reference q: " << std::endl << mPts.reference.features.rightCols(3) << std::endl;
+        std::cout << "Penalty weights w: " << std::endl << mPts.weights.rightCols(3) << std::endl;
+
+
 		// wF = [weights*cross, weights*normals]
 		// F  = [cross, normals]
 		Matrix wF(normalRef.rows()+ cross.rows(), normalRef.cols());
@@ -187,6 +193,11 @@ typename PointMatcher<T>::TransformationParameters PointToPlaneErrorMinimizer<T>
 
 		// b = -(wF' * dot)
 		const Vector b = -(wF * dotProd.transpose());
+
+		//TODO: VK: Remove this debug printing
+		std::cout << "This is A" << std::endl << A << std::endl;
+		std::cout << "This is b:" << std::endl << b << std::endl;
+
 
 		Vector x(A.rows());
 
