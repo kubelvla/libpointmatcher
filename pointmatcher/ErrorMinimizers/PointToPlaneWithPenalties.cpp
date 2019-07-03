@@ -78,13 +78,15 @@ typename PointMatcher<T>::TransformationParameters PointToPlaneWithPenaltiesErro
 
 	Matrix location, cov, offset;
 
+	//VK: This switches from Bab's penalties to Vlads penalty tests.
+
 	if(nbPenalty){
 		std::tie(location, cov, offset) = mPts_const.penalties[0];
 		if(location.rows()==4){
 			if(isnan(location(3,3))){
 				typename PointMatcher<T>::TransformationParameters out =
-						//PointToPlaneWithPenaltiesErrorMinimizer<T>::compute_with_gravity(mPts,location,cov);
-						PointToPlaneWithPenaltiesErrorMinimizer<T>::compute_4dof_with_gravity(mPts);
+						//PointToPlaneWithPenaltiesErrorMinimizer<T>::compute_with_gravity(mPts,location,cov);  // Penalty added by adding values to A in Ax=b
+						PointToPlaneWithPenaltiesErrorMinimizer<T>::compute_4dof_with_gravity(mPts); // Computing in 4dof
 				return out;
 			}
 		}
@@ -319,6 +321,7 @@ typename PointMatcher<T>::TransformationParameters PointToPlaneWithPenaltiesErro
 }
 
 
+//VK: This function will be removed or replaced, it is not used (imu attitude is not required, it is already in the prior input pointcloud)
 template<typename T>
 typename PointMatcher<T>::Matrix PointToPlaneWithPenaltiesErrorMinimizer<T>::compute_A_matrix_rows_for_gravity(const Matrix& imu_attitude, const Vector& normal_vect)
 {
@@ -338,6 +341,7 @@ typename PointMatcher<T>::Matrix PointToPlaneWithPenaltiesErrorMinimizer<T>::com
 	return A_grav;
 }
 
+//VK: Similarly for this function, not needed either
 template<typename T>
 typename PointMatcher<T>::Vector PointToPlaneWithPenaltiesErrorMinimizer<T>::compute_b_vector_elements_for_gravity(const Matrix& imu_attitude, const Vector& normal_vect)
 {
@@ -356,6 +360,8 @@ typename PointMatcher<T>::Vector PointToPlaneWithPenaltiesErrorMinimizer<T>::com
 	return b_grav;
 }
 
+
+// This is a modified version of the standard point-to-plane minimizer, which however works in 4DOF (the reference pointcloud MUST be gravity oriented)
 template<typename T>
 typename PointMatcher<T>::TransformationParameters PointToPlaneWithPenaltiesErrorMinimizer<T>::compute_4dof_with_gravity(ErrorElements& mPts)
 {
