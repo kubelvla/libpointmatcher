@@ -77,6 +77,7 @@ struct PointToPlaneWithPenaltiesErrorMinimizer: public PointToPlaneErrorMinimize
     {
         return {
             {"force2D", "If set to true(1), the minimization will be force to give a solution in 2D (i.e., on the XY-plane) even with 3D inputs.", "0", "0", "1", &P::Comp<bool>},
+            {"force4DOF", "If set to true(1), the minimization will optimize only yaw and translation, pitch and roll will follow the prior.", "0", "0", "1", &P::Comp<bool>},
             {"confidenceInPenalties", "What is the ratio of importance that the penalties must have in the minimization? "
                                       "A ratio of 0 would have the same behavior has `PointToPointErrorMinimizer`. "
                                       "A ratio of 1 would ignore the pointclouds.", "0.5", "0.", "1", &P::Comp<T>}
