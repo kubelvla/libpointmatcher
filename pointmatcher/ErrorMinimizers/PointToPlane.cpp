@@ -54,23 +54,30 @@ template<typename T>
 PointToPlaneErrorMinimizer<T>::PointToPlaneErrorMinimizer(const Parameters& params):
 	ErrorMinimizer(name(), availableParameters(), params),
 	force2D(Parametrizable::get<T>("force2D")),
-	force4DOF(Parametrizable::get<T>("force4DOF"))
+	force4DOF(Parametrizable::get<T>("force4DOF")),
+	forceXYZOnly(Parametrizable::get<T>("forceXYZOnly"))
 {
+
+	if((force2D?1:0)+(force4DOF?1:0)+(forceXYZOnly?1:0) >= 2)
+	{
+		throw PointMatcherSupport::ConfigurationError("Force2D, force4DOF and forceXYZOnly are mutually exclusive.");
+	}
+
 	if(force2D)
 	{
-		if (force4DOF)
-		{
-			throw PointMatcherSupport::ConfigurationError("Force 2D cannot be used together with force4DOF.");
-		} else {
-			LOG_INFO_STREAM("PointMatcher::PointToPlaneErrorMinimizer - minimization will be in 2D.");
-		}
+		LOG_INFO_STREAM("PointMatcher::PointToPlaneErrorMinimizer - minimization will be in 2D.");
 	}
 	else if(force4DOF)
     {
         LOG_INFO_STREAM("PointMatcher::PointToPlaneErrorMinimizer - minimization will be in 4-DOF (yaw,x,y,z).");
-    } else
+    }
+	else if(forceXYZOnly)
 	{
-		LOG_INFO_STREAM("PointMatcher::PointToPlaneErrorMinimizer - minimization will be in 3D.");
+		LOG_INFO_STREAM("PointMatcher::PointToPlaneErrorMinimizer - minimization will consider translation only(x,y,z).");
+	}
+	else
+	{
+		LOG_INFO_STREAM("PointMatcher::PointToPlaneErrorMinimizer - minimization will be in full 6DOF.");
 	}
 }
 
@@ -78,23 +85,29 @@ template<typename T>
 PointToPlaneErrorMinimizer<T>::PointToPlaneErrorMinimizer(const ParametersDoc paramsDoc, const Parameters& params):
 	ErrorMinimizer(name(), paramsDoc, params),
 	force2D(Parametrizable::get<T>("force2D")),
-	force4DOF(Parametrizable::get<T>("force4DOF"))
+	force4DOF(Parametrizable::get<T>("force4DOF")),
+	forceXYZOnly(Parametrizable::get<T>("forceXYZOnly"))
 {
+	if((force2D?1:0)+(force4DOF?1:0)+(forceXYZOnly?1:0) >= 2)
+	{
+		throw PointMatcherSupport::ConfigurationError("Force2D, force4DOF and forceXYZOnly are mutually exclusive.");
+	}
+
 	if(force2D)
 	{
-		if (force4DOF)
-		{
-			throw PointMatcherSupport::ConfigurationError("Force2D cannot be used together with force4DOF.");
-		} else {
-			LOG_INFO_STREAM("PointMatcher::PointToPlaneErrorMinimizer - minimization will be in 2D.");
-		}
+		LOG_INFO_STREAM("PointMatcher::PointToPlaneErrorMinimizer - minimization will be in 2D.");
 	}
 	else if(force4DOF)
 	{
 		LOG_INFO_STREAM("PointMatcher::PointToPlaneErrorMinimizer - minimization will be in 4-DOF (yaw,x,y,z).");
-	} else
+	}
+	else if(forceXYZOnly)
 	{
-		LOG_INFO_STREAM("PointMatcher::PointToPlaneErrorMinimizer - minimization will be in 3D.");
+		LOG_INFO_STREAM("PointMatcher::PointToPlaneErrorMinimizer - minimization will consider translation only(x,y,z).");
+	}
+	else
+	{
+		LOG_INFO_STREAM("PointMatcher::PointToPlaneErrorMinimizer - minimization will be in full 6DOF.");
 	}
 }
 
@@ -189,35 +202,54 @@ typename PointMatcher<T>::TransformationParameters PointToPlaneErrorMinimizer<T>
 		Matrix cross;
 	    Matrix Gamma(3,3);
 
-	    if(!force4DOF)
+	    if(force4DOF)
 		{
-			// Compute cross product of cross = cross(reading X normalRef)
-			cross = this->crossProduct(mPts.reading.features, normalRef);
-		}
-	    else
-	    {
-	    	//VK: Instead for "cross" as in 3D, we need only a dot product with the Gamma factor for 4DOF
+			//VK: Instead for "cross" as in 3D, we need only a dot product with the Gamma factor for 4DOF
 			Gamma << 0,-1, 0,
 					1, 0, 0,
 					0, 0, 0;
 			cross = ((Gamma*mPts.reading.features).transpose()*normalRef).diagonal().transpose();
 		}
+	    else if(!forceXYZOnly)
+	 	{
+			// Compute cross product of cross = cross(reading X normalRef)
+			cross = this->crossProduct(mPts.reading.features, normalRef);
+		}
+	    // else the forceXYZOnly applies and the cross and gamma are not needed anymore
 
 
-        // wF = [weights*cross, weights*normals]
-		// F  = [cross, normals]
-		Matrix wF(normalRef.rows()+ cross.rows(), normalRef.cols());
-		Matrix F(normalRef.rows()+ cross.rows(), normalRef.cols());
 
-		for(int i=0; i < cross.rows(); i++)
+	    Matrix wF;
+		Matrix F;
+
+	    if(forceXYZOnly)
 		{
+			// wF = [weights*normals]
+			// F  = [normals]
+			wF.resize(normalRef.rows(), normalRef.cols());
+			F.resize(normalRef.rows(), normalRef.cols());
+
+			for (int i = 0; i < normalRef.rows(); i++) {
+				wF.row(i) = mPts.weights.array() * normalRef.row(i).array();
+				F.row(i) = normalRef.row(i);
+			}
+
+		}
+		else {
+			// wF = [weights*cross, weights*normals]
+			// F  = [cross, normals]
+			wF.resize(normalRef.rows() + cross.rows(), normalRef.cols());
+			F.resize(normalRef.rows() + cross.rows(), normalRef.cols());
+
+			for (int i = 0; i < cross.rows(); i++) {
 				wF.row(i) = mPts.weights.array() * cross.row(i).array();
 				F.row(i) = cross.row(i);
-		}
-		for(int i=0; i < normalRef.rows(); i++)
-		{
+			}
+			for (int i = 0; i < normalRef.rows(); i++) {
 				wF.row(i + cross.rows()) = mPts.weights.array() * normalRef.row(i).array();
 				F.row(i + cross.rows()) = normalRef.row(i);
+			}
+
 		}
 
 		// Unadjust covariance A = wF * F'
@@ -256,12 +288,21 @@ typename PointMatcher<T>::TransformationParameters PointToPlaneErrorMinimizer<T>
 				 * Eigen::AngleAxis<T>(x(1), Eigen::Matrix<T,1,3>::UnitY())
 				 * Eigen::AngleAxis<T>(x(2), Eigen::Matrix<T,1,3>::UnitZ());*/
 
-				if (!force4DOF) {
-					transform = Eigen::AngleAxis<T>(x.head(3).norm(), x.head(3).normalized()); //x=[alpha,beta,gamma,x,y,z]
-				} else {
+				if(force4DOF)
+				{
 					Vector unitZ(3,1);
 					unitZ << 0,0,1;
 					transform = Eigen::AngleAxis<T>(x(0), unitZ);   //x=[gamma,x,y,z]
+				}
+				else if(forceXYZOnly)
+				{
+					Vector unitZ(3,1);
+					unitZ << 0,0,1;
+					transform = Eigen::AngleAxis<T>(T(0.0), unitZ);   //x=[x,y,z]
+				}
+				else
+				{
+					transform = Eigen::AngleAxis<T>(x.head(3).norm(), x.head(3).normalized()); //x=[alpha,beta,gamma,x,y,z]
 				}
 
 				// Reverse roll-pitch-yaw conversion, very useful piece of knowledge, keep it with you all time!
@@ -269,10 +310,17 @@ typename PointMatcher<T>::TransformationParameters PointToPlaneErrorMinimizer<T>
 					const T roll = atan2(transform(2,1), transform(2,2));
 					const T yaw = atan2(transform(1,0) / cos(pitch), transform(0,0) / cos(pitch));
 					std::cerr << "d angles" << x(0) - roll << ", " << x(1) - pitch << "," << x(2) - yaw << std::endl;*/
-				if (!force4DOF) {
-					transform.translation() = x.segment(3, 3);  //x=[alpha,beta,gamma,x,y,z]
-				} else {
+				if (force4DOF)
+				{
 					transform.translation() = x.segment(1, 3);  //x=[gamma,x,y,z]
+				}
+				else if(forceXYZOnly)
+				{
+					transform.translation() = x;  //x=[x,y,z]
+				}
+				else
+				{
+					transform.translation() = x.segment(3, 3);  //x=[alpha,beta,gamma,x,y,z]
 				}
 
 				mOut = transform.matrix();
