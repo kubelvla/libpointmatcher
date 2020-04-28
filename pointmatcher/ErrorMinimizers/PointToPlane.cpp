@@ -269,8 +269,8 @@ typename PointMatcher<T>::TransformationParameters PointToPlaneErrorMinimizer<T>
 		const Vector b = -(wF * dotProd.transpose());
 
 		//TODO: VK: Remove this debug printing
-		std::cout << "This is A" << std::endl << A << std::endl;
-		std::cout << "This is b:" << std::endl << b << std::endl;
+		/*std::cout << "This is A" << std::endl << A << std::endl;
+		std::cout << "This is b:" << std::endl << b << std::endl;*/
 
 
 		Vector x(A.rows());
