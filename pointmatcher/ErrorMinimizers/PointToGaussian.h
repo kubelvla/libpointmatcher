@@ -77,6 +77,7 @@ struct PointToGaussianErrorMinimizer: public PointToPlaneErrorMinimizer<T>
             {"force2D", "If set to true(1), the minimization will be force to give a solution in 2D (i.e., on the XY-plane) even with 3D inputs.", "0", "0", "1", &P::Comp<bool>},
             {"force4DOF", "If set to true(1), the minimization will optimize only yaw and translation, pitch and roll will follow the prior.", "0", "0", "1", &P::Comp<bool>},
             {"forceXYZOnly", "If set to true(1), the minimization will optimize translation only, attitude will follow the prior.", "0", "0", "1", &P::Comp<bool>},
+            {"noiseSensor", "Set the noise of the lidar (should be strictly positive)", "0.05", "0.00001", "100", &P::Comp<float>},
             {"confidenceInPenalties", "What is the ratio of importance that the penalties must have in the minimization? "
                                       "A ratio of 0, the penalties are ignored. "
                                       "A ratio of 1 would ignore the pointclouds.", "0.5", "0.", "1", &P::Comp<T>}
@@ -87,6 +88,7 @@ struct PointToGaussianErrorMinimizer: public PointToPlaneErrorMinimizer<T>
     const bool force2D;
     const bool force4DOF;
     const bool forceXYZOnly;
+    const float noiseSensor;
 
     PointToGaussianErrorMinimizer(const Parameters& params = Parameters());
     virtual TransformationParameters compute(const ErrorElements& mPts);

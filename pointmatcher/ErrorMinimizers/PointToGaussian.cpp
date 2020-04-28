@@ -59,7 +59,8 @@ PointToGaussianErrorMinimizer<T>::PointToGaussianErrorMinimizer(const Parameters
 	confidenceInPenalties(Parametrizable::get<T>("confidenceInPenalties")),
 	force2D(Parametrizable::get<bool>("force2D")),
     force4DOF(Parametrizable::get<bool>("force4DOF")),
-    forceXYZOnly(Parametrizable::get<bool>("forceXYZOnly"))
+    forceXYZOnly(Parametrizable::get<bool>("forceXYZOnly")),
+    noiseSensor(Parametrizable::get<float>("noiseSensor"))
 {
 }
 
@@ -146,7 +147,7 @@ typename PointToGaussianErrorMinimizer<T>::ErrorElements PointToGaussianErrorMin
 		mPts.weights.block(0, dim * i, 1, dim) = eigValues.col(i).array().inverse().transpose();
 	}*/
 
-	/*if (mPts_const.penalties.size() > 0) {
+	if (mPts_const.penalties.size() > 0) {
 		// It's hard to add points that have descriptor to a Datapoints, so we create a new Datapoints for the new points and then concatenate it
 		Matrix penaltiesPtsRead(dim + 1, nbPenalty * dim);
 		Matrix penaltiesPtsReference(dim + 1, nbPenalty * dim);
@@ -187,7 +188,7 @@ typename PointToGaussianErrorMinimizer<T>::ErrorElements PointToGaussianErrorMin
 
 		mPts.reference.concatenate(penaltiesReference);
 		mPts.reading.concatenate(penaltiesRead);
-	}*/
+	}
 	return mPts;
 }
 
