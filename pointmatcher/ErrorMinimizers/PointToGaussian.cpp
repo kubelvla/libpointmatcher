@@ -73,7 +73,6 @@ typename PointMatcher<T>::TransformationParameters PointToGaussianErrorMinimizer
 	return out;
 }
 
-
 template<typename T>
 typename PointToGaussianErrorMinimizer<T>::ErrorElements PointToGaussianErrorMinimizer<T>::convertCovariancesToNormals(const ErrorElements& mPts_const) const
 {
@@ -101,19 +100,10 @@ typename PointToGaussianErrorMinimizer<T>::ErrorElements PointToGaussianErrorMin
 	ConstView eigVectors = mPts_const.reference.getDescriptorViewByName("eigVectors");
 	ConstView eigValues = mPts_const.reference.getDescriptorViewByName("eigValues");
 
-    if ((eigValues.array() < -0.03*0.03).any()) {
-        /*std::cout<< "Eigen Value " << eigValues.cols() << std::endl;
-        std::cout<< "Eigen Value " << eigValues.rows() << std::endl;
-        for (long i=0; i < eigValues.cols(); i++)
-        {
-            if((eigValues.col(i).array() < 0.0).any())
-            {
-                std::cout<< "Eigen Value " << eigValues.col(i).array() << std::endl;
-            }
-        }*/
-
+    if ((eigValues.array() < -noiseSensor*noiseSensor).any()) {
         throw ConvergenceError("PointToGaussian(): Some of the eigen values are negative.");
     }
+
     for (long i = 0; i < mPts_const.reference.features.cols(); ++i) {
         mPts.reading.features.block(0, dim * i, dim + 1, dim) = mPts_const.reading.features.col(i).replicate(1, dim);
         mPts.reference.features.block(0, dim * i, dim + 1, dim) = mPts_const.reference.features.col(i).replicate(1, dim);
@@ -123,29 +113,10 @@ typename PointToGaussianErrorMinimizer<T>::ErrorElements PointToGaussianErrorMin
 
         normals.block(0, dim * i, dim, dim) = matEigVectors.transpose();
 
-        // A eigen value of zero will have infinite weight.
-        assert((eigValues.col(i).array() != 0.0).any());
-        //mPts.weights.block(0, dim * i, 1, dim) = eigValues.col(i).array().inverse().transpose();
-
-
-        mPts.weights.block(0, dim * i, 1, dim) = (pow(eigValues.col(i).array()+0.03*0.03,1/2)).inverse().transpose();
+        // A eigen value of zero will have infinite weight, that's why we add a noise constant for the weight
+        // Same solution as Bosse did with his Zebedee platefrom 
+        mPts.weights.block(0, dim * i, 1, dim) = (pow(eigValues.col(i).array()+noiseSensor*noiseSensor,1/2)).inverse().transpose();
     }
-
-	/*if ((eigValues.array() < 0.0).any()) {
-		throw ConvergenceError("PointToGaussian(): Some of the eigen values are negative.");
-	}
-	for (long i = 0; i < mPts_const.reference.features.cols(); ++i) {
-		mPts.reading.features.block(0, dim * i, dim + 1, dim) = mPts_const.reading.features.col(i).replicate(1, dim);
-		mPts.reference.features.block(0, dim * i, dim + 1, dim) = mPts_const.reference.features.col(i).replicate(1, dim);
-
-		// Convert a vector into a matrix
-		const Matrix matEigVectors = Eigen::Map<const Matrix>(eigVectors.col(i).data(), dim, dim);
-		normals.block(0, dim * i, dim, dim) = matEigVectors;
-
-		// A eigen value of zero will have infinite weight.
-		assert((eigValues.col(i).array() != 0.0).any());
-		mPts.weights.block(0, dim * i, 1, dim) = eigValues.col(i).array().inverse().transpose();
-	}*/
 
 	if (mPts_const.penalties.size() > 0) {
 		// It's hard to add points that have descriptor to a Datapoints, so we create a new Datapoints for the new points and then concatenate it
