@@ -550,9 +550,10 @@ struct PointMatcher
 			T weightedPointUsedRatio; //!< the ratio of how many points were used (with weight) for error minimization
 			Penalties penalties; //!< Additional constraints for the minimization
 			TransformationParameters T_refMean_iter;
+            TransformationParameters T_prior_save;
 
 			ErrorElements();
-			ErrorElements(const DataPoints& requestedPts, const DataPoints& sourcePts, const OutlierWeights& outlierWeights, const Matches& matches, const Penalties& penalties, const TransformationParameters& T_refMean_iter);
+			ErrorElements(const DataPoints& requestedPts, const DataPoints& sourcePts, const OutlierWeights& outlierWeights, const Matches& matches, const Penalties& penalties, const TransformationParameters& T_refMean_iter, const TransformationParameters& T_prior);
 		};
 		
 		ErrorMinimizer();
@@ -567,7 +568,7 @@ struct PointMatcher
 		virtual T getResidualError(const DataPoints& filteredReading, const DataPoints& filteredReference, const OutlierWeights& outlierWeights, const Matches& matches, const Penalties& penalties, const TransformationParameters& T_refMean_iter) const;
 		
 		//! Find the transformation that minimizes the error
-		virtual TransformationParameters compute(const DataPoints& filteredReading, const DataPoints& filteredReference, const OutlierWeights& outlierWeights, const Matches& matches, const Penalties& penalties, const TransformationParameters& T_refMean_iter);
+		virtual TransformationParameters compute(const DataPoints& filteredReading, const DataPoints& filteredReference, const OutlierWeights& outlierWeights, const Matches& matches, const Penalties& penalties, const TransformationParameters& T_refMean_iter, const TransformationParameters& T_prior);
 		//! Find the transformation that minimizes the error given matched pair of points. This function most be defined for all new instances of ErrorMinimizer.
 		virtual TransformationParameters compute(const ErrorElements& matchedPoints) = 0;
 		

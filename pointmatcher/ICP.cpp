@@ -402,9 +402,12 @@ typename PointMatcher<T>::TransformationParameters PointMatcher<T>::ICP::compute
 
 	// Reajust reading position: 
 	// from here reading is express in frame <refMean>
+	cout << "TrefMean: " << T_refIn_refMean <<endl;
+	cout << "TrefIn: " << T_refIn_dataIn << endl;
 	TransformationParameters 
 		T_refMean_dataIn = T_refIn_refMean.inverse() * T_refIn_dataIn;
-	this->transformations.apply(reading, T_refMean_dataIn);
+    cout << "TrefMeanAfter: " << T_refMean_dataIn << endl;
+    this->transformations.apply(reading, T_refMean_dataIn);
 	
 	// Prepare reading filters used in the loop 
 	this->readingStepDataPointsFilters.init();
@@ -469,7 +472,7 @@ typename PointMatcher<T>::TransformationParameters PointMatcher<T>::ICP::compute
 		// equivalent to: 
 		//   T_iter(i+1)_iter(0) = T_iter(i+1)_iter(i) * T_iter(i)_iter(0)
 		T_iter = this->errorMinimizer->compute(
-			stepReading, reference, outlierWeights, matches, penalties, T_iter * T_refMean_dataIn) * T_iter	;
+			stepReading, reference, outlierWeights, matches, penalties, T_iter * T_refMean_dataIn, T_refMean_dataIn) * T_iter	;    //add prior to save it during loop
 
 		// Old version
 		//T_iter = T_iter * this->errorMinimizer->compute(

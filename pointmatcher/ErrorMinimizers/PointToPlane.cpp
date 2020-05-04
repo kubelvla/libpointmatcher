@@ -181,6 +181,9 @@ typename PointMatcher<T>::TransformationParameters PointToPlaneErrorMinimizer<T>
 		const int dim = mPts.reading.features.rows();
 		const int nbPts = mPts.reading.features.cols();
 
+		cout << "transform: " << mPts.T_refMean_iter << endl;
+        cout << "transform prior: " << mPts.T_prior_save << endl;
+
 		// Adjust if the user forces 2D minimization on XY-plane
 		int forcedDim = dim - 1;
 		if(force2D && dim == 4)
@@ -400,12 +403,13 @@ T PointToPlaneErrorMinimizer<T>::getResidualError(
 	const OutlierWeights& outlierWeights,
 	const Matches& matches,
 	const Penalties& penalties,
-	const TransformationParameters& T_refMean_iter) const
+	const TransformationParameters& T_refMean_iter,
+    const TransformationParameters& T_prior) const
 {
 	assert(matches.ids.rows() > 0);
 
 	// Fetch paired points
-	typename ErrorMinimizer::ErrorElements mPts(filteredReading, filteredReference, outlierWeights, matches, penalties, T_refMean_iter);
+	typename ErrorMinimizer::ErrorElements mPts(filteredReading, filteredReference, outlierWeights, matches, penalties, T_refMean_iter, T_prior);
 
 	return PointToPlaneErrorMinimizer::computeResidualError(mPts, force2D);
 }

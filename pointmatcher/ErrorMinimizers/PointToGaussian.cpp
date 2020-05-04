@@ -170,12 +170,13 @@ T PointToGaussianErrorMinimizer<T>::getResidualError(
 				const OutlierWeights& outlierWeights,
 				const Matches& matches,
 				const Penalties& penalties,
-				const TransformationParameters& T_refMean_iter) const
+				const TransformationParameters& T_refMean_iter,
+                const TransformationParameters& T_prior) const
 {
 	assert(matches.ids.rows() > 0);
 
 	// Fetch paired points
-	const typename ErrorMinimizer::ErrorElements mPts(filteredReading, filteredReference, outlierWeights, matches, penalties, T_refMean_iter);
+	const typename ErrorMinimizer::ErrorElements mPts(filteredReading, filteredReference, outlierWeights, matches, penalties, T_refMean_iter, T_prior);
 	auto mPtsNormals = convertCovariancesToNormals(mPts);
 
 	return PointToGaussianErrorMinimizer::computeResidualError(mPtsNormals, force2D);

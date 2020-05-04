@@ -104,12 +104,13 @@ T PointToPointSimilarityErrorMinimizer<T>::getResidualError(
 	const OutlierWeights& outlierWeights,
 	const Matches& matches,
 	const Penalties& penalties,
-	const TransformationParameters& T_refMean_iter) const
+	const TransformationParameters& T_refMean_iter,
+    const TransformationParameters& T_prior) const
 {
 	assert(matches.ids.rows() > 0);
 	
 	// Fetch paired points
-	typename ErrorMinimizer::ErrorElements mPts(filteredReading, filteredReference, outlierWeights, matches, penalties, T_refMean_iter);
+	typename ErrorMinimizer::ErrorElements mPts(filteredReading, filteredReference, outlierWeights, matches, penalties, T_refMean_iter, T_prior);
 	
 	return PointToPointErrorMinimizer<T>::computeResidualError(mPts);
 }

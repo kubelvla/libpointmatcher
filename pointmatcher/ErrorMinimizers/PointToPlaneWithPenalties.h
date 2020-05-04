@@ -94,7 +94,7 @@ struct PointToPlaneWithPenaltiesErrorMinimizer: public PointToPlaneErrorMinimize
     Matrix compute_A_matrix_rows_for_gravity(const Matrix& imu_attitude, const Vector& normal_vect);
     Vector compute_b_vector_elements_for_gravity(const Matrix& imu_attitude, const Vector& normal_vect);
     TransformationParameters compute_4dof_with_gravity(ErrorElements& mPts);
-    virtual T getResidualError(const DataPoints& filteredReading, const DataPoints& filteredReference, const OutlierWeights& outlierWeights, const Matches& matches, const Penalties& penalties, const TransformationParameters& T_refMean_iter) const;
+    virtual T getResidualError(const DataPoints& filteredReading, const DataPoints& filteredReference, const OutlierWeights& outlierWeights, const Matches& matches, const Penalties& penalties, const TransformationParameters& T_refMean_iter, const TransformationParameters& T_prior) const;
 
 };
 

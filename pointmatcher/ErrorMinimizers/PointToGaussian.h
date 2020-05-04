@@ -92,7 +92,7 @@ struct PointToGaussianErrorMinimizer: public PointToPlaneErrorMinimizer<T>
 
     PointToGaussianErrorMinimizer(const Parameters& params = Parameters());
     virtual TransformationParameters compute(const ErrorElements& mPts);
-    virtual T getResidualError(const DataPoints& filteredReading, const DataPoints& filteredReference, const OutlierWeights& outlierWeights, const Matches& matches, const Penalties& penalties, const TransformationParameters& T_refMean_iter) const;
+    virtual T getResidualError(const DataPoints& filteredReading, const DataPoints& filteredReference, const OutlierWeights& outlierWeights, const Matches& matches, const Penalties& penalties, const TransformationParameters& T_refMean_iter, const TransformationParameters& T_prior) const;
 private:
     ErrorElements convertCovariancesToNormals(const ErrorElements& mPts) const;
 };
