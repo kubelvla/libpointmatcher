@@ -402,11 +402,8 @@ typename PointMatcher<T>::TransformationParameters PointMatcher<T>::ICP::compute
 
 	// Reajust reading position: 
 	// from here reading is express in frame <refMean>
-	cout << "TrefMean: " << T_refIn_refMean <<endl;
-	cout << "TrefIn: " << T_refIn_dataIn << endl;
 	TransformationParameters 
 		T_refMean_dataIn = T_refIn_refMean.inverse() * T_refIn_dataIn;
-    cout << "TrefMeanAfter: " << T_refMean_dataIn << endl;
     this->transformations.apply(reading, T_refMean_dataIn);
 	
 	// Prepare reading filters used in the loop 
