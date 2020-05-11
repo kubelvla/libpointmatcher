@@ -183,49 +183,39 @@ typename PointMatcher<T>::TransformationParameters PointToPlaneErrorMinimizer<T>
     //Without it, the normal point to plane is done
     if(LiePenalty) {
         const size_t dim(mPts_const.reference.features.rows() - 1);
-        cout<<dim<<endl;
-        const size_t nbPenalty(mPts_const.penalties.size());
-        const size_t newSize(dim * (mPts.weights.cols()));
-        mPts.reference.conservativeResize(newSize);
-        mPts.reading.conservativeResize(newSize);
+        const size_t newSize((mPts.weights.cols()) + dim);
         mPts.weights.conservativeResize(Eigen::NoChange, newSize + dim);
 
         if (!mPts.reference.descriptorExists("normals")) {
             Labels cloudLabels;
             cloudLabels.push_back(Label("normals", dim));
-            // Reserve memory
-            mPts.reference.allocateDescriptors(cloudLabels);
+            mPts.reference.allocateDescriptors(cloudLabels); // Reserve memory
         }
         View normals = mPts.reference.getDescriptorViewByName("normals");
 
         for (long i = 0; i < mPts_const.reference.features.cols(); ++i) {
-            mPts.reading.features.block(0, dim * i, dim + 1, dim) = mPts_const.reading.features.col(i).replicate(1, dim);
-            mPts.reference.features.block(0, dim * i, dim + 1, dim) = mPts_const.reference.features.col(i).replicate(1, dim);
-            mPts.weights.block(0, dim * i, 1, dim) = mPts_const.weights.block(0, dim * i, 1, dim);
+            mPts.weights.block(0, i, 1, dim) = mPts_const.weights.block(0, i, 1, dim);
         }
 
         //The Lie Penalty is computed according to the prior rotation matrix and the ICP correction matrix found during the ICP loop
         //This penalty is changing at each iteration of ICP. That's why it's computed here before the minimization
         //The theory is presented in WorkReport_LieICP
 
-        cout << "Start Lie" << endl;
         //Identity matrix use later
         Matrix identityMatrix;
         identityMatrix.resize(3, 3);
         identityMatrix << 1, 0, 0, 0, 1, 0, 0, 0, 1;
-        cout << "identity" << endl;
         Matrix3f identityMatrixf;
         identityMatrixf << 1, 0, 0, 0, 1, 0, 0, 0, 1;
 
         //Noise covariance of the prior given by the yaml file
         //NoiseSensor is the equivalent to the noise covariance Sigma_e presented in equation (3), for the noise epsilon presented in WorkReport_LieICP
         Matrix NoiseSensor = priorCovariance * identityMatrix;
-        cout << "debug" << endl;
+
         //Rotation matrix of prior and ICP transform
         //rotation_matrix_prior is equivalent to C_s presented in WorkReport_LieICP
         //rotation_matrix_icp is equivalent to C_I presented in WorkReport_LieICP
         //TODO: maxime, simplify the assignment between matrix
-        cout<<mPts.T_prior_save<<endl;
         Matrix3f rotation_matrix_prior;       //Rotation matrix of the prior
         Matrix3f rotation_matrix_icp;         //Rotation matrix of ICP
         rotation_matrix_prior(0, 0) = mPts.T_prior_save(0, 0);
@@ -248,7 +238,6 @@ typename PointMatcher<T>::TransformationParameters PointToPlaneErrorMinimizer<T>
         rotation_matrix_icp(2, 1) = mPts.T_refMean_iter(2, 1);
         rotation_matrix_icp(2, 2) = mPts.T_refMean_iter(2, 2);
 
-        cout << "extract angle" << endl;
         //Extract angle and axis of rotation for icp and prior rotation matrix
         //Convert matrix to extract the parameters
         AngleAxisf priorAngleAxisStruct;
@@ -292,7 +281,7 @@ typename PointMatcher<T>::TransformationParameters PointToPlaneErrorMinimizer<T>
 
         //beta is calculated according to the equation (9) in WorkReport_LieICP
         //TODO: maxime, better way to calculate beta
-        Vector beta(3, 1);
+        Vector beta(4, 1);
         beta << Jprior(0, 0) * (priorAngleVector(0, 0) - icpAngleVector(0, 0)) +
                 Jprior(0, 1) * (priorAngleVector(1, 0) - icpAngleVector(1, 0)) +
                 Jprior(0, 2) * (priorAngleVector(2, 0) - icpAngleVector(2, 0)),
@@ -301,7 +290,11 @@ typename PointMatcher<T>::TransformationParameters PointToPlaneErrorMinimizer<T>
                 Jprior(1, 2) * (priorAngleVector(2, 0) - icpAngleVector(2, 0)),
                 Jprior(2, 0) * (priorAngleVector(0, 0) - icpAngleVector(0, 0)) +
                 Jprior(2, 1) * (priorAngleVector(1, 0) - icpAngleVector(1, 0)) +
-                Jprior(2, 2) * (priorAngleVector(2, 0) - icpAngleVector(2, 0));
+                Jprior(2, 2) * (priorAngleVector(2, 0) - icpAngleVector(2, 0)), 1;
+        Vector beta_null(4, 1);
+        beta_null << 0,0,0,1;
+
+        cout << "beta Lie penalty: " << endl << beta.transpose() << endl;
 
         // To minimize both the distances from the point cloud and the penalty at the same time we convert the penalty to fake pair of point/normal.
         // For the penalty, n fake pair of point/normal will be created, where n is the dimensions of the covariance.
@@ -313,8 +306,6 @@ typename PointMatcher<T>::TransformationParameters PointToPlaneErrorMinimizer<T>
         // n1, n2, n3 are column vectors. The fake pair will use these vectors as normal.
         // For the fake points of the reference and the reading, the translation part of penalty tf matrix and the current transformation matrix will be used respectively.
 
-        cout << "Begin to add penalty" << endl;
-        cout << "beta: " << endl << beta << endl;
         Matrix penaltiesPtsRead(dim + 1, dim);
         Matrix penaltiesPtsReference(dim + 1, dim);
         Matrix penaltiesNormals(dim, dim);
@@ -323,39 +314,25 @@ typename PointMatcher<T>::TransformationParameters PointToPlaneErrorMinimizer<T>
         const EigenSolver <Matrix> solver(NoiseSensor);   //W = NoiseSensor
         const Matrix eigenVec = solver.eigenvectors().real();  //N
         const Vector eigenVal = solver.eigenvalues().real();   //Values for L
-        cout<<"eigenVec: " << endl << eigenVec <<endl;
-        cout<<"eigenVal: " << endl << eigenVal <<endl;
 
         //TODO: maxime, not sure about this
         //According to equation (7) in WorkReport_LieICP, the error should be beta.transpose()*NoiseSensor.inverse()*beta
-        cout << "compute points to add" << endl;
         //Compute points to add
-        //const Vector transInRef(beta.col(dim));
-        //const Vector transInRead(beta.col(dim));
-        //penaltiesPtsRead.block(0, 0, dim, dim) = transInRead.replicate(1, dim);
-        //penaltiesPtsReference.block(0, 0, dim, dim) = transInRef.replicate(1, dim);
 
-        penaltiesPtsRead.block(0, 0, dim, dim) = beta.replicate(1, dim);   //TODO: maxime, not sure about this
-        penaltiesPtsReference.block(0, 0, dim, dim) = beta.replicate(1, dim); //TODO: maxime, not sure about this
+        penaltiesPtsRead.block(0, 0, dim + 1 , dim) = (mPts.T_prior_save*beta).replicate(1, dim);   //Send beta in T_prior frame
+        penaltiesPtsReference.block(0, 0, dim + 1, dim) = (mPts.T_prior_save*beta).replicate(1, dim); //Send beta in T_prior frame
         penaltiesNormals.block(0, 0, dim, dim) = eigenVec;
         mPts.weights.block(0, newSize, 1, dim) = eigenVal.diagonal().array().inverse().transpose();
-        cout << "ptsread:" << endl << penaltiesPtsRead <<endl;
-        cout << "ptsreference:" << endl << penaltiesPtsReference <<endl;
-        cout << "normals: " << endl << penaltiesNormals << endl;
-        cout << "weight: " << endl << mPts.weights.block(0, newSize, 1, dim) << endl;
 
-        cout << "datapoints" << endl;
         const Labels normalLabel({Label("normals", dim)});
         const DataPoints penaltiesReference(penaltiesPtsReference, mPts_const.reference.featureLabels, penaltiesNormals,
                                             normalLabel);
-        const DataPoints penaltiesRead(penaltiesPtsRead, mPts_const.reading.featureLabels);
+        const DataPoints penaltiesRead(penaltiesPtsRead, mPts.reading.featureLabels);
 
         //Add penalty to the minimization datapoints
         mPts.reference.concatenate(penaltiesReference);
         mPts.reading.concatenate(penaltiesRead);
-        cout << "Add Lie Penalty" << endl;
     }
-
     return compute_in_place(mPts);
 }
 
@@ -399,6 +376,7 @@ typename PointMatcher<T>::TransformationParameters PointToPlaneErrorMinimizer<T>
         // Compute cross product of cross = cross(reading X normalRef)
         cross = this->crossProduct(mPts.reading.features, normalRef);
     }
+
     // else the forceXYZOnly applies and the cross and gamma are not needed anymore
 
     Matrix wF;
